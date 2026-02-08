@@ -95,9 +95,11 @@ async def home(request: Request, db: Session = Depends(database.get_db), modelo:
         # FILTRAGEM AJUSTADA POR REGRAS
         if etapa and etapa.strip():
             filtro = etapa.strip().upper()
-            regra = ETAPA_REGRAS.get(filtro)
-            if regra and regra(status_map):
-                veiculos_exibicao.append(v)
+            status_map_s = {k.strip().upper(): v.strip().upper() for k, v in status_map.items()}
+            
+            if filtro in ETAPA_REGRAS:
+                if ETAPA_REGRAS[filtro](status_map_s):
+                    veiculos_exibicao.append(v)
         else:
             veiculos_exibicao.append(v)
 
