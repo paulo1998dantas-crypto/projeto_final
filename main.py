@@ -10,11 +10,13 @@ from sqlalchemy.orm import Session
 from sqlalchemy import or_, func, cast, String
 import uvicorn
 
+# Configuração de diretórios e templates
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
 
 import database, models
 
+# Inicialização do banco de dados
 database.Base.metadata.create_all(bind=database.engine)
 
 app = FastAPI()
@@ -36,31 +38,34 @@ ETAPAS_PRODUCAO = [
 ]
 
 # Define regras de filtragem por etapa
+# Ajustado para validar contra "NÃO" e "SIM" conforme consta no banco de dados
 ETAPA_REGRAS = {
-    "VIDROS": lambda s: s.get("VIDROS") == "N",
-    "A/C": lambda s: s.get("A/C") == "N",
-    "PREP": lambda s: s.get("PREP") == "N",
-    "SERRA": lambda s: s.get("SERRA") == "N",
-    "EXPE.": lambda s: s.get("EXPE.") == "N",
-    "DESMONT": lambda s: s.get("VIDROS") in ["S", "N/A"] and s.get("A/C") in ["S", "N/A"] and s.get("DESMONT") == "N",
-    "ELETRICA": lambda s: s.get("DESMONT") in ["S", "N/A"] and s.get("ELETRICA") == "N",
-    "REVEST": lambda s: s.get("DESMONT") in ["S", "N/A"] and s.get("REVEST") == "N",
-    "BCO": lambda s: s.get("REVEST") in ["S", "N/A"] and s.get("BCO") == "N",
-    "ACESSÓ.": lambda s: s.get("ACESSÓ.") == "N",
-    "PLOTA.": lambda s: s.get("PLOTA.") == "N",
-    "LIBERA": lambda s: s.get("BANCO") in ["S", "N/A"] and s.get("LIBERA") == "N"
+    "VIDROS": lambda s: s.get("VIDROS") == "NÃO",
+    "A/C": lambda s: s.get("A/C") == "NÃO",
+    "PREP": lambda s: s.get("PREP") == "NÃO",
+    "SERRA": lambda s: s.get("SERRA") == "NÃO",
+    "EXPE.": lambda s: s.get("EXPE.") == "NÃO",
+    "DESMONT": lambda s: s.get("VIDROS") in ["SIM", "N/A"] and s.get("A/C") in ["SIM", "N/A"] and s.get("DESMONT") == "NÃO",
+    "ELETRICA": lambda s: s.get("DESMONT") in ["SIM", "N/A"] and s.get("ELETRICA") == "NÃO",
+    "REVEST": lambda s: s.get("DESMONT") in ["SIM", "N/A"] and s.get("REVEST") == "NÃO",
+    "BCO": lambda s: s.get("REVEST") in ["SIM", "N/A"] and s.get("BCO") == "NÃO",
+    "ACESSÓ.": lambda s: s.get("ACESSÓ.") == "NÃO",
+    "PLOTA.": lambda s: s.get("PLOTA.") == "NÃO",
+    "LIBERA": lambda s: s.get("BCO") in ["SIM", "N/A"] and s.get("LIBERA") == "NÃO"
 }
 
 @app.get("/")
 async def home(request: Request, db: Session = Depends(database.get_db), modelo: str = None, etapa: str = None):
     query = db.query(models.Veiculo)
 
+    # Filtragem por texto (Modelo ou Chassi)
+    # Adicionado func.coalesce para evitar que valores NULL quebrem a busca LIKE
     if modelo and modelo.strip():
         termo = f"%{modelo.strip().upper()}%"
         query = query.filter(
             or_(
-                func.upper(cast(models.Veiculo.modelo, String)).like(termo),
-                func.upper(cast(models.Veiculo.chassi, String)).like(termo)
+                func.upper(func.coalesce(cast(models.Veiculo.modelo, String), "")).like(termo),
+                func.upper(func.coalesce(cast(models.Veiculo.chassi, String), "")).like(termo)
             )
         )
 
@@ -73,28 +78,30 @@ async def home(request: Request, db: Session = Depends(database.get_db), modelo:
             func.trim(cast(models.Apontamento.chassi, String)) == chassi_key
         ).all()
 
+        # Cria mapeamento de status atualizado para o veículo
         status_map = {
             str(a.etapa).strip().upper(): str(a.status).strip().upper()
             for a in apontamentos
         }
 
-        # Calculo progresso
+        # Cálculo de progresso
         concluidos = sum(
             1 for e in ETAPAS_PRODUCAO
             if status_map.get(e.upper()) in ["SIM", "S", "OK", "N/A"]
         )
         v.progresso = int((concluidos / len(ETAPAS_PRODUCAO)) * 100) if ETAPAS_PRODUCAO else 0
 
-        # Determina etapa atual
+        # Determinação da etapa atual
         v.etapa_atual = "FINALIZADO"
         for e in ETAPAS_PRODUCAO:
             if status_map.get(e.upper()) not in ["SIM", "S", "OK", "N/A"]:
                 v.etapa_atual = e
                 break
 
-        # FILTRAGEM AJUSTADA POR REGRAS
+        # FILTRAGEM POR ETAPA (Lógica de Negócio)
         if etapa and etapa.strip():
             filtro = etapa.strip().upper()
+            # Normalização para garantir comparação correta
             status_map_s = {k.strip().upper(): v.strip().upper() for k, v in status_map.items()}
             
             if filtro in ETAPA_REGRAS:
@@ -109,7 +116,8 @@ async def home(request: Request, db: Session = Depends(database.get_db), modelo:
             "request": request,
             "veiculos": veiculos_exibicao,
             "etapas": ETAPAS_PRODUCAO,
-            "termo_busca": modelo or ""
+            "termo_busca": modelo or "",
+            "etapa_selecionada": etapa or ""
         }
     )
 
@@ -153,6 +161,7 @@ async def upload_base(file: UploadFile = File(...), db: Session = Depends(databa
 
         df.columns = [str(c).upper().strip() for c in df.columns]
 
+        # Limpa dados anteriores para nova carga
         db.query(models.Apontamento).delete()
         db.query(models.Veiculo).delete()
         db.commit()
@@ -192,6 +201,7 @@ async def salvar(data: dict = Body(...), db: Session = Depends(database.get_db))
     et = str(data["etapa"]).strip().upper()
     st = str(data["status"]).strip().upper()
 
+    # Atualiza ou cria o apontamento
     db.query(models.Apontamento).filter(
         func.trim(cast(models.Apontamento.chassi, String)) == ch,
         func.trim(cast(models.Apontamento.etapa, String)) == et
@@ -203,6 +213,7 @@ async def salvar(data: dict = Body(...), db: Session = Depends(database.get_db))
         func.trim(cast(models.Veiculo.chassi, String)) == ch
     ).first()
 
+    # Registra no histórico
     db.add(models.Historico(
         chassi=ch,
         modelo=v.modelo if v else "N/A",
