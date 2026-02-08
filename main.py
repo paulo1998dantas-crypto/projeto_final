@@ -77,11 +77,11 @@ async def home(request: Request, db: Session = Depends(database.get_db), modelo:
                 v.etapa_atual = e
                 break
 
-        # FILTRAGEM AJUSTADA
+        # FILTRAGEM AJUSTADA CORRETA
         if etapa and etapa.strip():
             filtro = etapa.strip().upper()
 
-            # Etapas sequenciais com condição S ou N/A
+            # Etapas sequenciais
             if filtro == "DESMONT":
                 if ((status_map.get("VIDROS") in ["S", "N/A"]) and
                     (status_map.get("A/C") in ["S", "N/A"]) and
