@@ -63,22 +63,56 @@ async def home(request: Request, db: Session = Depends(database.get_db), modelo:
             for a in apontamentos
         }
 
+        # Calculo progresso
         concluidos = sum(
             1 for e in ETAPAS_PRODUCAO
             if status_map.get(e.upper()) in ["SIM", "S", "OK", "N/A"]
         )
-
         v.progresso = int((concluidos / len(ETAPAS_PRODUCAO)) * 100) if ETAPAS_PRODUCAO else 0
 
+        # Determina etapa atual
         v.etapa_atual = "FINALIZADO"
         for e in ETAPAS_PRODUCAO:
             if status_map.get(e.upper()) not in ["SIM", "S", "OK", "N/A"]:
                 v.etapa_atual = e
                 break
 
+        # FILTRAGEM AJUSTADA
         if etapa and etapa.strip():
-            if v.etapa_atual.upper() == etapa.strip().upper():
-                veiculos_exibicao.append(v)
+            filtro = etapa.strip().upper()
+
+            # Etapas sequenciais com condição S ou N/A
+            if filtro == "DESMONT":
+                if ((status_map.get("VIDROS") in ["S", "N/A"]) and
+                    (status_map.get("A/C") in ["S", "N/A"]) and
+                    (status_map.get("DESMONT") == "N")):
+                    veiculos_exibicao.append(v)
+
+            elif filtro == "REVEST":
+                if ((status_map.get("DESMONT") in ["S", "N/A"]) and
+                    (status_map.get("REVEST") == "N")):
+                    veiculos_exibicao.append(v)
+
+            elif filtro == "BCO":
+                if ((status_map.get("REVEST") in ["S", "N/A"]) and
+                    (status_map.get("BCO") == "N")):
+                    veiculos_exibicao.append(v)
+
+            elif filtro == "LIBERA":
+                if ((status_map.get("BANCO") in ["S", "N/A"]) and
+                    (status_map.get("LIBERA") == "N")):
+                    veiculos_exibicao.append(v)
+
+            # Etapas independentes / paralelas
+            elif filtro in ["PREP", "SERRA", "EXPE.", "ELETRICA", "ACESSÓ.", "PLOTA."]:
+                if status_map.get(filtro) == "N":
+                    veiculos_exibicao.append(v)
+
+            # Etapas obrigatórias iniciais
+            elif filtro in ["VIDROS", "A/C"]:
+                if status_map.get(filtro) == "N":
+                    veiculos_exibicao.append(v)
+
         else:
             veiculos_exibicao.append(v)
 
