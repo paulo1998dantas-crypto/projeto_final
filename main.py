@@ -35,6 +35,21 @@ ETAPAS_PRODUCAO = [
     "LIBERA"
 ]
 
+# Define regras de filtragem por etapa
+ETAPA_REGRAS = {
+    "VIDROS": lambda s: s.get("VIDROS") == "N",
+    "A/C": lambda s: s.get("A/C") == "N",
+    "PREP": lambda s: s.get("PREP") == "N",
+    "SERRA": lambda s: s.get("SERRA") == "N",
+    "EXPE.": lambda s: s.get("EXPE.") == "N",
+    "DESMONT": lambda s: s.get("VIDROS") in ["S", "N/A"] and s.get("A/C") in ["S", "N/A"] and s.get("DESMONT") == "N",
+    "ELETRICA": lambda s: s.get("DESMONT") in ["S", "N/A"] and s.get("ELETRICA") == "N",
+    "REVEST": lambda s: s.get("DESMONT") in ["S", "N/A"] and s.get("REVEST") == "N",
+    "BCO": lambda s: s.get("REVEST") in ["S", "N/A"] and s.get("BCO") == "N",
+    "ACESSÓ.": lambda s: s.get("ACESSÓ.") == "N",
+    "PLOTA.": lambda s: s.get("PLOTA.") == "N",
+    "LIBERA": lambda s: s.get("BANCO") in ["S", "N/A"] and s.get("LIBERA") == "N"
+}
 
 @app.get("/")
 async def home(request: Request, db: Session = Depends(database.get_db), modelo: str = None, etapa: str = None):
@@ -77,42 +92,12 @@ async def home(request: Request, db: Session = Depends(database.get_db), modelo:
                 v.etapa_atual = e
                 break
 
-        # FILTRAGEM AJUSTADA CORRETA
+        # FILTRAGEM AJUSTADA POR REGRAS
         if etapa and etapa.strip():
             filtro = etapa.strip().upper()
-
-            # Etapas sequenciais
-            if filtro == "DESMONT":
-                if ((status_map.get("VIDROS") in ["S", "N/A"]) and
-                    (status_map.get("A/C") in ["S", "N/A"]) and
-                    (status_map.get("DESMONT") == "N")):
-                    veiculos_exibicao.append(v)
-
-            elif filtro == "REVEST":
-                if ((status_map.get("DESMONT") in ["S", "N/A"]) and
-                    (status_map.get("REVEST") == "N")):
-                    veiculos_exibicao.append(v)
-
-            elif filtro == "BCO":
-                if ((status_map.get("REVEST") in ["S", "N/A"]) and
-                    (status_map.get("BCO") == "N")):
-                    veiculos_exibicao.append(v)
-
-            elif filtro == "LIBERA":
-                if ((status_map.get("BANCO") in ["S", "N/A"]) and
-                    (status_map.get("LIBERA") == "N")):
-                    veiculos_exibicao.append(v)
-
-            # Etapas independentes / paralelas
-            elif filtro in ["PREP", "SERRA", "EXPE.", "ELETRICA", "ACESSÓ.", "PLOTA."]:
-                if status_map.get(filtro) == "N":
-                    veiculos_exibicao.append(v)
-
-            # Etapas obrigatórias iniciais
-            elif filtro in ["VIDROS", "A/C"]:
-                if status_map.get(filtro) == "N":
-                    veiculos_exibicao.append(v)
-
+            regra = ETAPA_REGRAS.get(filtro)
+            if regra and regra(status_map):
+                veiculos_exibicao.append(v)
         else:
             veiculos_exibicao.append(v)
 
@@ -125,7 +110,6 @@ async def home(request: Request, db: Session = Depends(database.get_db), modelo:
             "termo_busca": modelo or ""
         }
     )
-
 
 @app.get("/veiculo/{chassi}")
 async def detalhes(request: Request, chassi: str, db: Session = Depends(database.get_db)):
@@ -153,7 +137,6 @@ async def detalhes(request: Request, chassi: str, db: Session = Depends(database
             "status_map": status_map
         }
     )
-
 
 @app.post("/upload")
 async def upload_base(file: UploadFile = File(...), db: Session = Depends(database.get_db)):
@@ -201,7 +184,6 @@ async def upload_base(file: UploadFile = File(...), db: Session = Depends(databa
         db.rollback()
         return {"status": "erro", "detail": str(e)}
 
-
 @app.post("/apontar")
 async def salvar(data: dict = Body(...), db: Session = Depends(database.get_db)):
     ch = str(data["chassi"]).strip()
@@ -228,7 +210,6 @@ async def salvar(data: dict = Body(...), db: Session = Depends(database.get_db))
 
     db.commit()
     return {"status": "ok"}
-
 
 @app.get("/exportar_historico")
 async def exportar(db: Session = Depends(database.get_db)):
@@ -259,18 +240,15 @@ async def exportar(db: Session = Depends(database.get_db)):
         headers={"Content-Disposition": "attachment; filename=relatorio.xlsx"}
     )
 
-
 @app.get("/limpar_historico")
 async def limpar_logs(db: Session = Depends(database.get_db)):
     db.query(models.Historico).delete()
     db.commit()
     return RedirectResponse(url="/", status_code=303)
 
-
 @app.get("/importar")
 async def pg_importar(request: Request):
     return templates.TemplateResponse("importar.html", {"request": request})
-
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8001))
